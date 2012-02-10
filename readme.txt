@@ -20,7 +20,7 @@ This plugin uses WP_Cron to update the sites. I've created a filter in the plugi
 
 == Screenshots ==
 
-1. The Network Admin dashboard screen.
+1. The Network Admin dashboard screen. Each of the options can be added on to using the hooks in the plugin.
 
 == Changelog ==
 
