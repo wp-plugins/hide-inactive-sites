@@ -6,7 +6,7 @@ Tested up to: 3.3.1
 Stable tag: trunk
 
 == Description ==
-Changes visibility of a blog after it has had no activity for a specified amount of time. It is only for WordPress Multisite.
+Changes visibility of a blog after it has had no activity for a specified amount of time. It is only for WordPress Multisite. This is meant for people running networks of blogs and hide the inactive sites.
 
 This plugin uses WP_Cron to update the sites. I've created a filter in the plugin to edit the query of sites that are returned. There are also hooks for adding additional custom options to each of the settings.  
 
