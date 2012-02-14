@@ -24,6 +24,9 @@ This plugin uses WP_Cron to update the sites. I've created a filter in the plugi
 
 == Changelog ==
 
+= 1.0.2 =
+* Minor bug showing error in text box when there was no value.
+
 = 1.0.1 =
 * Added new option for excluding additional sites (main site will always be excluded)
 * Added new option for supplying a minimum number of posts for a site to be safe.

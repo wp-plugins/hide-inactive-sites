@@ -4,7 +4,7 @@ Plugin Name: Hide Inactive Sites
 Plugin URI: http://judenware.com/projects/wordpress/hide-inactive-sites/
 Description: Changes visibility of a blog after it has had no activity for a specified amount of time.
 Author: ericjuden
-Version: 1.0.1
+Version: 1.0.2
 Author URI: http://www.judenware.com
 Network: true
 */
@@ -207,7 +207,7 @@ class Hide_Inactive_Sites {
     				<em><?php _e('Blog IDs separated by comma. Do not include main site (1), as it will <strong>always</strong> be excluded.')?></em>
     			</th>
     			<td>
-    				<input type="text" name="excluded_sites" id="excluded_sites" value="<?php echo implode(',', $this->options['excluded_sites']); ?>" />
+    				<input type="text" name="excluded_sites" id="excluded_sites" value="<?php echo (isset($this->options['excluded_sites'])) ? implode(',', $this->options['excluded_sites']) : ''; ?>" />
     			</td>
     		</tr>
     		<tr valign="top">
