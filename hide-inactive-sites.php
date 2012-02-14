@@ -4,7 +4,7 @@ Plugin Name: Hide Inactive Sites
 Plugin URI: http://judenware.com/projects/wordpress/hide-inactive-sites/
 Description: Changes visibility of a blog after it has had no activity for a specified amount of time.
 Author: ericjuden
-Version: 1.0
+Version: 1.0.1
 Author URI: http://www.judenware.com
 Network: true
 */
@@ -47,17 +47,43 @@ class Hide_Inactive_Sites {
         global $wpdb;
         
         $timezone_offset = get_option('gmt_offset');
-		$query = "SELECT blog_id, last_updated FROM " . $wpdb->base_prefix . "blogs WHERE spam != '1' AND archived != '1' AND deleted != '1' AND blog_id != '1' AND last_updated <= '". date('Y-m-d H:i:s', time()-$this->options['inactivity_threshold']+ $timezone_offset * 3600) ."' AND public <> '". $this->options['site_visibility'] ."' ORDER BY last_updated ASC";
+		$query = "SELECT blog_id, last_updated FROM " . $wpdb->base_prefix . "blogs WHERE spam != '1' AND archived != '1' AND deleted != '1'";
+		
+		// Check for excluded sites...if none, still exclude site #1
+		if(!empty($this->options['excluded_sites'])){
+			$query .= " AND blog_id NOT IN (1,". implode(',', $this->options['excluded_sites']) .")";
+		} else {
+			$query .= " AND blog_id != '1'";
+		}
+		
+		$query .= " AND last_updated <= '". date('Y-m-d H:i:s', time()-$this->options['inactivity_threshold']+ $timezone_offset * 3600) ."' AND public <> '". $this->options['site_visibility'] ."' ORDER BY last_updated ASC";
 		$query = apply_filters('hide_inactive_sites_edit_query', $query);
 		$blogs = $wpdb->get_results($query);
 
 		foreach($blogs as $blog){
-		    set_time_limit(60);
+		    // Extend php processing time each time we loop...just to make sure this doesn't fail
+			set_time_limit(60);
+		    
+		    // Get site information
+		    $site_details = get_blog_details($blog->blog_id);
+		    
+		    // Check for minimum # posts to be met
+		    if(isset($this->options['min_posts']) && $this->options['min_posts'] > 0){
+		    	if($site_details->post_count >= $this->options['min_posts']){
+		    		continue;	// Has enough post...skip hiding this one
+		    	}
+		    }
+		    
+		    // Array of arguments to be updated
 		    $args = array(
 		        'last_updated' => $blog->last_updated,    // Keep last_updated the same as it currently is
 		        'public' => $this->options['site_visibility'] // Change visibility of blog based on settings
 		    );
+		    
+		    // Allow developers to update additional info for the site
 		    $args = apply_filters('hide_inactive_sites_update_blog', $args, $blog->blog_id);
+		    
+		    // Update site
 		    update_blog_details($blog->blog_id, $args);
 		}
     }
@@ -104,6 +130,15 @@ class Hide_Inactive_Sites {
                 }
                 if(isset($_POST['blog_public'])){
                     $this->options['site_visibility'] = $_POST['blog_public'];
+                }
+                if(isset($_POST['excluded_sites'])){
+                	$this->options['excluded_sites'] = explode(',', $_POST['excluded_sites']);
+                	if($this->options['excluded_sites'] === false){
+                		$this->options['excluded_sites'] = array();	
+                	}
+                }
+                if(isset($_POST['min_posts'])){
+                	$this->options['min_posts'] = $_POST['min_posts'];
                 }
 			    
 			    if($this->is_network){
@@ -163,12 +198,42 @@ class Hide_Inactive_Sites {
 					<label for="blog-public"><?php _e( 'Allow search engines to index this site.' );?></label><br/>
 					<input id="blog-norobots" type="radio" name="blog_public" value="0"<?php echo ($this->options['site_visibility'] == 0 ? ' checked="checked"' : ''); ?> />
 					<label for="blog-norobots"><?php _e( 'Ask search engines not to index this site.' ); ?></label>
-					<?php do_action('blog_privacy_selector'); ?>
+					<?php do_action('blog_privacy_selector', $this->options); ?>
+    			</td>
+    		</tr>
+    		<tr valign="top">
+    			<th scope="row">
+    				<strong><?php _e('Excluded Sites'); ?></strong><br />
+    				<em><?php _e('Blog IDs separated by comma. Do not include main site (1), as it will <strong>always</strong> be excluded.')?></em>
+    			</th>
+    			<td>
+    				<input type="text" name="excluded_sites" id="excluded_sites" value="<?php echo implode(',', $this->options['excluded_sites']); ?>" />
+    			</td>
+    		</tr>
+    		<tr valign="top">
+    			<th scope="row">
+    				<strong><?php _e('Minimum # Posts'); ?></strong><br />
+    				<em><?php _e('How many posts will keep this site from being hidden? Leave at <strong>0</strong> to not use.')?></em>
+    			</th>
+    			<td>
+    				<select name="min_posts" id="min_posts">
+    					<option value="0"<?php echo ($this->options['min_posts'] == 0 ? ' selected="selected"' : ''); ?>>0</option>
+    					<option value="1"<?php echo ($this->options['min_posts'] == 1 ? ' selected="selected"' : ''); ?>>1</option>
+    					<option value="2"<?php echo ($this->options['min_posts'] == 2 ? ' selected="selected"' : ''); ?>>2</option>
+    					<option value="3"<?php echo ($this->options['min_posts'] == 3 ? ' selected="selected"' : ''); ?>>3</option>
+    					<option value="4"<?php echo ($this->options['min_posts'] == 4 ? ' selected="selected"' : ''); ?>>4</option>
+    					<option value="5"<?php echo ($this->options['min_posts'] == 5 ? ' selected="selected"' : ''); ?>>5</option>
+    					<option value="10"<?php echo ($this->options['min_posts'] == 10 ? ' selected="selected"' : ''); ?>>10</option>
+    					<option value="15"<?php echo ($this->options['min_posts'] == 15 ? ' selected="selected"' : ''); ?>>15</option>
+    					<option value="20"<?php echo ($this->options['min_posts'] == 20 ? ' selected="selected"' : ''); ?>>20</option>
+    					<option value="25"<?php echo ($this->options['min_posts'] == 25 ? ' selected="selected"' : ''); ?>>25</option>
+    					<?php do_action('hide-inactive-sites-add-min-posts', $this->options); ?>
+    				</select>
     			</td>
     		</tr>
     		</table>
     		<input type="hidden" name="action" value="update" />
-    		<input type="hidden" name="page_options" value="update_frequency,inactivity_threshold,blog_public" />
+    		<input type="hidden" name="page_options" value="update_frequency,inactivity_threshold,blog_public,excluded_sites" />
     		<?php settings_fields('hide-inactive-sites_group'); ?>
 			<p class="submit"><input type="submit" class="button-primary" value="<?php _e('Save Changes'); ?>" /></p>
     		</form>
