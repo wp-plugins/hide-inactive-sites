@@ -24,6 +24,12 @@ This plugin uses WP_Cron to update the sites. I've created a filter in the plugi
 
 == Changelog ==
 
+= 1.1 =
+* Added new options to mark site as archived and/or deleted
+* Added new option to leave site visibility as it currently is
+* Added email sent to site administrators when it gets hidden
+* Added several filters to customize the email being sent
+
 = 1.0.2 =
 * Minor bug showing error in text box when there was no value.
 

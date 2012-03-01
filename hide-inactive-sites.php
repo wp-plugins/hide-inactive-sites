@@ -4,12 +4,13 @@ Plugin Name: Hide Inactive Sites
 Plugin URI: http://judenware.com/projects/wordpress/hide-inactive-sites/
 Description: Changes visibility of a blog after it has had no activity for a specified amount of time.
 Author: ericjuden
-Version: 1.0.2
+Version: 1.1
 Author URI: http://www.judenware.com
 Network: true
 */
 
 require_once(ABSPATH . 'wp-admin/includes/plugin.php');    // Needed for is_plugin_active_for_network()
+require_once(ABSPATH . 'wp-includes/pluggable.php');
 
 define('HIS_ONE_WEEK',  60*60*24*7);
 define('HIS_ONE_MONTH', 60*60*24*30);
@@ -77,14 +78,28 @@ class Hide_Inactive_Sites {
 		    // Array of arguments to be updated
 		    $args = array(
 		        'last_updated' => $blog->last_updated,    // Keep last_updated the same as it currently is
-		        'public' => $this->options['site_visibility'] // Change visibility of blog based on settings
 		    );
+		    
+		    if($this->options['site_visibility'] != 'no_change'){
+		    	$args['public'] = $this->options['site_visibility']; // Change visibility of blog based on settings
+		    }
+		    
+		    if($this->options['archive_site'] == '1'){
+		    	$args['archived'] = 1;
+		    }
+		    
+		    if($this->options['delete_site'] == '1'){
+		    	$args['deleted'] = 1;
+		    }
 		    
 		    // Allow developers to update additional info for the site
 		    $args = apply_filters('hide_inactive_sites_update_blog', $args, $blog->blog_id);
 		    
 		    // Update site
 		    update_blog_details($blog->blog_id, $args);
+		    
+		    // Send email notifying the user
+		    $this->send_site_hidden_email($site_details);
 		}
     }
     
@@ -131,6 +146,16 @@ class Hide_Inactive_Sites {
                 if(isset($_POST['blog_public'])){
                     $this->options['site_visibility'] = $_POST['blog_public'];
                 }
+                if(isset($_POST['archive_site'])){
+                	$this->options['archive_site'] = $_POST['archive_site'];
+                } else {
+                	$this->options['archive_site'] = '0';
+                }
+                if(isset($_POST['delete_site'])){
+                	$this->options['delete_site'] = $_POST['delete_site'];
+                } else {
+                	$this->options['delete_site'] = '0';
+                }
                 if(isset($_POST['excluded_sites'])){
                 	$this->options['excluded_sites'] = explode(',', $_POST['excluded_sites']);
                 	if($this->options['excluded_sites'] === false){
@@ -156,6 +181,7 @@ class Hide_Inactive_Sites {
 		    	break;
 		    
         	default:
+
     ?>
     		<form method="post" action="<?php echo $current_page ?>?page=hide-inactive-sites-options&action=update">
     		<?php wp_nonce_field('update-options'); ?>
@@ -194,11 +220,24 @@ class Hide_Inactive_Sites {
     				<strong><?php _e('Inactive Site Visibility'); ?></strong>
     			</th>
     			<td>
-    				<input id="blog-public" type="radio" name="blog_public" value="1"<?php echo ($this->options['site_visibility'] == 1 ? ' checked="checked"' : ''); ?> />
-					<label for="blog-public"><?php _e( 'Allow search engines to index this site.' );?></label><br/>
-					<input id="blog-norobots" type="radio" name="blog_public" value="0"<?php echo ($this->options['site_visibility'] == 0 ? ' checked="checked"' : ''); ?> />
+    				<input id="blog-nochange" type="radio" name="blog_public" value="no_change"<?php echo ($this->options['site_visibility'] == 'no_change' ? ' checked="checked"' : ''); ?> />
+    				<label for="blog-nochange"><?php _e('Do not change'); ?></label><br />
+    				<input id="blog-public" type="radio" name="blog_public" value="1"<?php echo ($this->options['site_visibility'] == '1' ? ' checked="checked"' : ''); ?> />
+					<label for="blog-public"><?php _e( 'Allow search engines to index this site.' );?></label><br />
+					<input id="blog-norobots" type="radio" name="blog_public" value="0"<?php echo ($this->options['site_visibility'] == '0' ? ' checked="checked"' : ''); ?> />
 					<label for="blog-norobots"><?php _e( 'Ask search engines not to index this site.' ); ?></label>
 					<?php do_action('blog_privacy_selector', $this->options); ?>
+    			</td>
+    		</tr>
+    		<tr valign="top">
+    			<th scope="row">
+    				<strong><?php _e('Site Options')?></strong>
+    			</th>
+    			<td>
+    				<input type="checkbox" id="archive_site" name="archive_site" value="1"<?php echo ($this->options['archive_site'] == '1' ? ' checked="checked"' : ''); ?> />
+    				<label for="archive_site"><?php _e('Archive'); ?></label><br />
+    				<input type="checkbox" id="delete_site" name="delete_site" value="1"<?php echo ($this->options['delete_site'] == '1' ? ' checked="checked"' : ''); ?> />
+    				<label for="delete_site"><?php _e('Delete'); ?></label><br />
     			</td>
     		</tr>
     		<tr valign="top">
@@ -238,12 +277,53 @@ class Hide_Inactive_Sites {
 			<p class="submit"><input type="submit" class="button-primary" value="<?php _e('Save Changes'); ?>" /></p>
     		</form>
     <?php
-        break;
-	}
-		    
+        		break;
+		}    
     ?>
 	</div>
 <?php				
+	}
+	
+    function send_site_hidden_email($site_details){
+		global $wpdb, $blog_id;
+		
+		// Get list of admins to send email to
+		$old_blog_id = $blog_id;
+		switch_to_blog($site_details->blog_id);
+		
+		$blog_prefix = $wpdb->get_blog_prefix($site_details->blog_id);
+		$users = $wpdb->get_results( "SELECT user_id, user_id AS ID, user_login, display_name, user_email, meta_value FROM $wpdb->users, $wpdb->usermeta WHERE {$wpdb->users}.ID = {$wpdb->usermeta}.user_id AND meta_key = '{$blog_prefix}capabilities' ORDER BY {$wpdb->users}.display_name" );
+		
+		$admins = array();
+		foreach($users as $user){
+			$user_details = get_user_by('login', $user->user_login);
+			if(user_can($user_details->ID, 'manage_options')){
+				$admins[$user_details->ID] = $user_details->user_email;	// Add admin email to array
+			}
+		}
+		$admin_emails = implode(',', $admins);
+		
+		$headers = "From: ". get_site_option('admin_email') ."\r\n";
+		$headers .= "Content-Type: text/html\r\n";
+		$subject = '[' . get_site_option('site_name') . '] ' . _('Your Site Has Been Hidden');
+		$message = '<html><body>';
+		$message .= '<p>' . _('Dear Site Administrator,') . '</p>'; 
+		$message .= '<p>' . _('Your site') . ', <a href="'. $site_details->siteurl .'">' . $site_details->siteurl .'</a> ' . _('has been inactive for ') . round($this->options['inactivity_threshold']/60/60/24) . _('days and was automatically hidden.') . '</p>';
+		$message .= '<p>' . _('If you think this was in error, please reply to this email.') . '</p>';
+		$message .= '<p>' . _('Thanks,') . '</p>';
+		$message .= '<p>' . get_site_option('site_name') . ' ' . _('Administrators') .'</p>';
+		$message .= '</body></html>';
+		
+		$admin_emails = apply_filters('hide_inactive_sites_edit_site_hidden_to_emails', $admin_emails, $site_details);
+		$headers = apply_filters('hide_inactive_sites_edit_site_hidden_headers', $headers, $site_details);
+		$subject = apply_filters('hide_inactive_sites_edit_site_hidden_subject', $subject, $site_details);
+		$message = apply_filters('hide_inactive_sites_edit_site_hidden_message', $message, $site_details);
+		
+	    echo $message;
+		
+		switch_to_blog($old_blog_id);
+		
+		return wp_mail($admin_emails, $subject, $message, $headers);
 	}
 }
 
