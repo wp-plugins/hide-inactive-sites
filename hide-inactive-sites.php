@@ -4,7 +4,7 @@ Plugin Name: Hide Inactive Sites
 Plugin URI: http://judenware.com/projects/wordpress/hide-inactive-sites/
 Description: Changes visibility of a blog after it has had no activity for a specified amount of time.
 Author: ericjuden
-Version: 1.1
+Version: 1.1.1
 Author URI: http://www.judenware.com
 Network: true
 */
@@ -308,7 +308,7 @@ class Hide_Inactive_Sites {
 		$subject = '[' . get_site_option('site_name') . '] ' . _('Your Site Has Been Hidden');
 		$message = '<html><body>';
 		$message .= '<p>' . _('Dear Site Administrator,') . '</p>'; 
-		$message .= '<p>' . _('Your site') . ', <a href="'. $site_details->siteurl .'">' . $site_details->siteurl .'</a> ' . _('has been inactive for ') . round($this->options['inactivity_threshold']/60/60/24) . _('days and was automatically hidden.') . '</p>';
+		$message .= '<p>' . sprintf(__('Your site, %s has been inactive for %d days and was automatically hidden.'), '<a href="'. $site_details->siteurl .'">' . $site_details->siteurl .'</a>', round($this->options['inactivity_threshold']/60/60/24)) . '</p>';
 		$message .= '<p>' . _('If you think this was in error, please reply to this email.') . '</p>';
 		$message .= '<p>' . _('Thanks,') . '</p>';
 		$message .= '<p>' . get_site_option('site_name') . ' ' . _('Administrators') .'</p>';
@@ -318,8 +318,6 @@ class Hide_Inactive_Sites {
 		$headers = apply_filters('hide_inactive_sites_edit_site_hidden_headers', $headers, $site_details);
 		$subject = apply_filters('hide_inactive_sites_edit_site_hidden_subject', $subject, $site_details);
 		$message = apply_filters('hide_inactive_sites_edit_site_hidden_message', $message, $site_details);
-		
-	    echo $message;
 		
 		switch_to_blog($old_blog_id);
 		

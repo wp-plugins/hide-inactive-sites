@@ -24,6 +24,9 @@ This plugin uses WP_Cron to update the sites. I've created a filter in the plugi
 
 == Changelog ==
 
+= 1.1.1 =
+* Fixed spacing issues in email sent
+
 = 1.1 =
 * Added new options to mark site as archived and/or deleted
 * Added new option to leave site visibility as it currently is
