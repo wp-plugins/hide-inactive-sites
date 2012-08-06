@@ -2,7 +2,7 @@
 Contributors: ericjuden
 Tags: wordpress, multisite, wpmu, blogs, sites, activity, inactive, hide
 Requires at least: 3.2
-Tested up to: 3.3.1
+Tested up to: 3.4
 Stable tag: trunk
 
 == Description ==
@@ -23,6 +23,11 @@ This plugin uses WP_Cron to update the sites. I've created a filter in the plugi
 1. The Network Admin dashboard screen. Each of the options can be added on to using the hooks in the plugin.
 
 == Changelog ==
+
+= 1.2 =
+* Added ability to send warning email before site is removed
+* Fixed problem with query after removing excluded sites. 
+* Restructured some of the plugin's hooks to use filters instead. Useful for adding your own time limits to the settings.
 
 = 1.1.1 =
 * Fixed spacing issues in email sent

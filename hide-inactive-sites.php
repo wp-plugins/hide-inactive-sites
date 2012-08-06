@@ -4,7 +4,7 @@ Plugin Name: Hide Inactive Sites
 Plugin URI: http://judenware.com/projects/wordpress/hide-inactive-sites/
 Description: Changes visibility of a blog after it has had no activity for a specified amount of time.
 Author: ericjuden
-Version: 1.1.1
+Version: 1.2
 Author URI: http://www.judenware.com
 Network: true
 */
@@ -12,7 +12,9 @@ Network: true
 require_once(ABSPATH . 'wp-admin/includes/plugin.php');    // Needed for is_plugin_active_for_network()
 require_once(ABSPATH . 'wp-includes/pluggable.php');
 
+define('HIS_ONE_DAY', 60*60*24*1);
 define('HIS_ONE_WEEK',  60*60*24*7);
+define('HIS_TWO_WEEK',  60*60*24*7*2);
 define('HIS_ONE_MONTH', 60*60*24*30);
 define('HIS_THREE_MONTH', 60*60*24*30*3);
 define('HIS_SIX_MONTH', 60*60*24*30*6);
@@ -31,6 +33,7 @@ class Hide_Inactive_Sites {
 		}
 
         add_action('hide_inactive_sites_cron', array(&$this, 'cron'));
+        add_action('hide_inactive_sites_warning', array(&$this, 'warning'));
 		add_action(($this->is_network ? 'network_admin_menu' : 'admin_menu'), array(&$this, 'admin_menu'));
 		add_action('init', array(&$this, 'init'));
 		add_filter('cron_schedules', array(&$this, 'cron_schedules'));
@@ -45,13 +48,13 @@ class Hide_Inactive_Sites {
 	}
     
     function cron(){
-        global $wpdb;
+        global $wpdb, $blog_id;
         
         $timezone_offset = get_option('gmt_offset');
 		$query = "SELECT blog_id, last_updated FROM " . $wpdb->base_prefix . "blogs WHERE spam != '1' AND archived != '1' AND deleted != '1'";
 		
 		// Check for excluded sites...if none, still exclude site #1
-		if(!empty($this->options['excluded_sites'])){
+		if(!empty($this->options['excluded_sites']) && $this->options['excluded_sites'][0] != ''){
 			$query .= " AND blog_id NOT IN (1,". implode(',', $this->options['excluded_sites']) .")";
 		} else {
 			$query .= " AND blog_id != '1'";
@@ -60,7 +63,7 @@ class Hide_Inactive_Sites {
 		$query .= " AND last_updated <= '". date('Y-m-d H:i:s', time()-$this->options['inactivity_threshold']+ $timezone_offset * 3600) ."' AND public <> '". $this->options['site_visibility'] ."' ORDER BY last_updated ASC";
 		$query = apply_filters('hide_inactive_sites_edit_query', $query);
 		$blogs = $wpdb->get_results($query);
-
+		
 		foreach($blogs as $blog){
 		    // Extend php processing time each time we loop...just to make sure this doesn't fail
 			set_time_limit(60);
@@ -68,11 +71,27 @@ class Hide_Inactive_Sites {
 		    // Get site information
 		    $site_details = get_blog_details($blog->blog_id);
 		    
+		    // Check when site was warned
+		    switch_to_blog($blog->blog_id);
+		    $warning_time = get_option('hide-inactive-sites-warned', false);
+		    switch_to_blog($blog_id);
+		    
+		    // Has site been warned yet?
+		    if($warning_time === false){
+		        // Give $this->warning() a chance to work!
+		        continue;
+		    }
+		    
+		    // Check if warning threshold has passed
+		    if(time() <= $warning_time + $this->options['inactivity_warning_threshold']){
+		        continue;
+		    }
+		        
 		    // Check for minimum # posts to be met
 		    if(isset($this->options['min_posts']) && $this->options['min_posts'] > 0){
 		    	if($site_details->post_count >= $this->options['min_posts']){
 		    		continue;	// Has enough post...skip hiding this one
-		    	}
+		        }
 		    }
 		    
 		    // Array of arguments to be updated
@@ -98,6 +117,11 @@ class Hide_Inactive_Sites {
 		    // Update site
 		    update_blog_details($blog->blog_id, $args);
 		    
+		    // Remove option for when the site was warned
+		    switch_to_blog($blog->blog_id);
+		    delete_option('hide-inactive-sites-warned');
+		    switch_to_blog($blog_id);
+		    
 		    // Send email notifying the user
 		    $this->send_site_hidden_email($site_details);
 		}
@@ -111,8 +135,87 @@ class Hide_Inactive_Sites {
             )
         );
     }
+    
+    function get_inactivity_thresholds(){
+        $inactivity_thresholds = array(
+	        HIS_ONE_MONTH => __('1 Month'),
+	        HIS_THREE_MONTH => __('3 Months'),
+	        HIS_SIX_MONTH => __('6 Months'),
+	        HIS_ONE_YEAR => __('1 Year'),
+	        HIS_TWO_YEAR => __('2 Years')
+	    );
+	    
+	    return apply_filters('hide-inactive-sites-manage-inactivity-thresholds', $inactivity_thresholds);
+    }
+    
+    function get_inactivity_warning_thresholds(){
+        $inactivity_warning_thresholds = array(
+            HIS_ONE_DAY => __('1 Day'),
+            HIS_ONE_WEEK => __('1 Week'),
+            HIS_TWO_WEEK => __('2 Weeks'),
+	        HIS_ONE_MONTH => __('1 Month'),
+	        HIS_THREE_MONTH => __('3 Months'),
+	        HIS_SIX_MONTH => __('6 Months'),
+	        HIS_ONE_YEAR => __('1 Year')
+	    );
+	    
+	    return apply_filters('hide-inactive-sites-manage-inactivity-warning-thresholds', $inactivity_warning_thresholds);
+    }
+    
+    function get_min_posts(){
+        $min_posts = array(
+            '0' => __('0'),
+            '1' => __('1'),
+            '2' => __('2'),
+            '3' => __('3'),
+            '4' => __('4'),
+            '5' => __('5'),
+            '10' => __('10'),
+            '15' => __('15'),
+            '20' => __('20'),
+            '25' => __('25')
+        );
+        
+        return apply_filters('hide-inactive-sites-manage-min-posts', $min_posts);
+    }
+    
+    function get_site_admins($blog_id){
+	    global $wpdb;
+	    
+	    $blog_prefix = $wpdb->get_blog_prefix($blog_id);
+		$users = $wpdb->get_results( "SELECT user_id, user_id AS ID, user_login, display_name, user_email, meta_value FROM $wpdb->users, $wpdb->usermeta WHERE {$wpdb->users}.ID = {$wpdb->usermeta}.user_id AND meta_key = '{$blog_prefix}capabilities' ORDER BY {$wpdb->users}.display_name" );
+	    
+	    $admins = array();
+		foreach($users as $user){
+			$user_details = get_user_by('login', $user->user_login);
+			if(user_can($user_details->ID, 'manage_options')){
+				$admins[$user_details->ID] = $user_details->user_email;	// Add admin email to array
+			}
+		}
+		$admin_emails = implode(',', $admins);
+		
+		return $admin_emails;
+	}
 	
-	function init(){	    
+	function get_update_frequencies(){
+	    $update_frequencies = array(
+	        'daily' => __('Daily'),
+	        'monthly' => __('Monthly')
+	    );
+	    
+	    return apply_filters('hide-inactive-sites-manage-update-frequency', $update_frequencies);
+	}
+	
+	function init(){
+	    $timezone_offset = get_option('gmt_offset');
+        
+	    if(!wp_next_scheduled('hide_inactive_sites_warning') && !empty($this->options)){
+		    // Schedule next run for warning message
+		    wp_schedule_event(time() + $timezone_offset * 3600, $this->options['update_frequency'], 'hide_inactive_sites_warning');
+		    
+		    $this->warning();
+		}
+        
 		if(!wp_next_scheduled('hide_inactive_sites_cron') && !empty($this->options)){
 	        // Schedule next run
 		    wp_schedule_event(time() + $timezone_offset * 3600, $this->options['update_frequency'], 'hide_inactive_sites_cron');
@@ -143,6 +246,9 @@ class Hide_Inactive_Sites {
                 if(isset($_POST['inactivity_threshold'])){
                     $this->options['inactivity_threshold'] = $_POST['inactivity_threshold'];
                 }
+		        if(isset($_POST['inactivity_warning_threshold'])){
+                    $this->options['inactivity_warning_threshold'] = $_POST['inactivity_warning_threshold'];
+                }
                 if(isset($_POST['blog_public'])){
                     $this->options['site_visibility'] = $_POST['blog_public'];
                 }
@@ -157,10 +263,14 @@ class Hide_Inactive_Sites {
                 	$this->options['delete_site'] = '0';
                 }
                 if(isset($_POST['excluded_sites'])){
-                	$this->options['excluded_sites'] = explode(',', $_POST['excluded_sites']);
-                	if($this->options['excluded_sites'] === false){
-                		$this->options['excluded_sites'] = array();	
-                	}
+                    if($_POST['excluded_sites'] != ''){
+                        $this->options['excluded_sites'] = explode(',', $_POST['excluded_sites']);
+                    	if($this->options['excluded_sites'] === false){
+                    		$this->options['excluded_sites'] = array();	
+                    	}
+                    } else {
+                	    $this->options['excluded_sites'] = array();
+                    }
                 }
                 if(isset($_POST['min_posts'])){
                 	$this->options['min_posts'] = $_POST['min_posts'];
@@ -192,9 +302,10 @@ class Hide_Inactive_Sites {
     			</th>
     			<td>
     				<select name="update_frequency" id="update_frequency">
-    					<option value="daily"<?php echo ($this->options['update_frequency'] == 'daily') ? ' selected="selected"' : ''; ?>><?php _e('Daily')?></option>
-    					<option value="monthly"<?php echo ($this->options['update_frequency'] == 'monthly') ? ' selected="selected"' : ''; ?>><?php _e('Monthly')?></option>
-    					<?php do_action('hide-inactive-sites-add-update-frequency', $this->options); ?>
+    				    <?php foreach($this->get_update_frequencies() as $key=>$label){ ?>
+    					<option value="<?php echo $key; ?>"<?php echo ($this->options['update_frequency'] == $key ? ' selected="selected"' : ''); ?>><?php echo $label; ?></option>
+    				    <?php } ?>
+    				    <?php do_action('hide-inactive-sites-add-update-frequency', $this->options); ?>
     				</select>
     			</td>
     		</tr>
@@ -205,13 +316,24 @@ class Hide_Inactive_Sites {
     			</th>
     			<td>
     				<select name="inactivity_threshold" id="inactivity_threshold">
-    					<option value="<?php echo HIS_ONE_WEEK; ?>"<?php echo ($this->options['inactivity_threshold'] == HIS_ONE_WEEK ? ' selected="selected"' : '') ?>><?php _e('1 Week'); ?></option>
-    					<option value="<?php echo HIS_ONE_MONTH; ?>"<?php echo ($this->options['inactivity_threshold'] == HIS_ONE_MONTH ? ' selected="selected"' : '') ?>><?php _e('1 Month'); ?></option>
-    					<option value="<?php echo HIS_THREE_MONTH; ?>"<?php echo ($this->options['inactivity_threshold'] == HIS_THREE_MONTH ? ' selected="selected"' : '') ?>><?php _e('3 Months'); ?></option>
-    					<option value="<?php echo HIS_SIX_MONTH; ?>"<?php echo ($this->options['inactivity_threshold'] == HIS_SIX_MONTH ? ' selected="selected"' : '') ?>><?php _e('6 Months'); ?></option>
-    					<option value="<?php echo HIS_ONE_YEAR; ?>"<?php echo ($this->options['inactivity_threshold'] == HIS_ONE_YEAR ? ' selected="selected"' : '') ?>><?php _e('1 Year'); ?></option>
-    					<option value="<?php echo HIS_TWO_YEAR; ?>"<?php echo ($this->options['inactivity_threshold'] == HIS_TWO_YEAR ? ' selected="selected"' : '') ?>><?php _e('2 Years'); ?></option>
+    				    <?php foreach($this->get_inactivity_thresholds() as $key=>$label){ ?>
+    					<option value="<?php echo $key; ?>"<?php echo ($this->options['inactivity_threshold'] == $key ? ' selected="selected"' : ''); ?>><?php echo $label; ?></option>
+    				    <?php } ?>
     					<?php do_action('hide-inactive-sites-add-inactivity-thresholds', $this->options); ?>
+    				</select>
+    			</td>
+    		</tr>
+    		<tr valign="top">
+    			<th scope="row">
+    				<strong><?php _e('Inactivity Warning Threshold'); ?></strong><br />
+    				<em><?php _e('(How many days before the site is inactive should they be warned?)');?></em>
+    			</th>
+    			<td>
+    				<select name="inactivity_warning_threshold" id="inactivity_warning_threshold">
+    				    <?php foreach($this->get_inactivity_warning_thresholds() as $key=>$label){ ?>
+    					<option value="<?php echo $key; ?>"<?php echo ($this->options['inactivity_warning_threshold'] == $key ? ' selected="selected"' : ''); ?>><?php echo $label; ?></option>
+    				    <?php } ?>
+    					<?php do_action('hide-inactive-sites-add-inactivity-warning-thresholds', $this->options); ?>
     				</select>
     			</td>
     		</tr>
@@ -256,23 +378,16 @@ class Hide_Inactive_Sites {
     			</th>
     			<td>
     				<select name="min_posts" id="min_posts">
-    					<option value="0"<?php echo ($this->options['min_posts'] == 0 ? ' selected="selected"' : ''); ?>>0</option>
-    					<option value="1"<?php echo ($this->options['min_posts'] == 1 ? ' selected="selected"' : ''); ?>>1</option>
-    					<option value="2"<?php echo ($this->options['min_posts'] == 2 ? ' selected="selected"' : ''); ?>>2</option>
-    					<option value="3"<?php echo ($this->options['min_posts'] == 3 ? ' selected="selected"' : ''); ?>>3</option>
-    					<option value="4"<?php echo ($this->options['min_posts'] == 4 ? ' selected="selected"' : ''); ?>>4</option>
-    					<option value="5"<?php echo ($this->options['min_posts'] == 5 ? ' selected="selected"' : ''); ?>>5</option>
-    					<option value="10"<?php echo ($this->options['min_posts'] == 10 ? ' selected="selected"' : ''); ?>>10</option>
-    					<option value="15"<?php echo ($this->options['min_posts'] == 15 ? ' selected="selected"' : ''); ?>>15</option>
-    					<option value="20"<?php echo ($this->options['min_posts'] == 20 ? ' selected="selected"' : ''); ?>>20</option>
-    					<option value="25"<?php echo ($this->options['min_posts'] == 25 ? ' selected="selected"' : ''); ?>>25</option>
+    				    <?php foreach($this->get_min_posts() as $key=>$label){ ?>
+    					<option value="<?php echo $key; ?>"<?php echo ($this->options['min_posts'] == $key ? ' selected="selected"' : ''); ?>><?php echo $label; ?></option>
+    				    <?php } ?>
     					<?php do_action('hide-inactive-sites-add-min-posts', $this->options); ?>
     				</select>
     			</td>
     		</tr>
     		</table>
     		<input type="hidden" name="action" value="update" />
-    		<input type="hidden" name="page_options" value="update_frequency,inactivity_threshold,blog_public,excluded_sites" />
+    		<input type="hidden" name="page_options" value="update_frequency,inactivity_threshold,inactivity_warning_threshold,blog_public,excluded_sites" />
     		<?php settings_fields('hide-inactive-sites_group'); ?>
 			<p class="submit"><input type="submit" class="button-primary" value="<?php _e('Save Changes'); ?>" /></p>
     		</form>
@@ -284,6 +399,36 @@ class Hide_Inactive_Sites {
 <?php				
 	}
 	
+    function send_site_warning_email($site_details){
+	    global $wpdb, $blog_id;
+		
+		// Get list of admins to send email to
+		$old_blog_id = $blog_id;
+		switch_to_blog($site_details->blog_id);
+		
+		$admin_emails = $this->get_site_admins($site_details->blog_id);
+		
+		$headers = "From: ". get_site_option('admin_email') ."\r\n";
+		$headers .= "Content-Type: text/html\r\n";
+		$subject = '[' . get_site_option('site_name') . '] ' . _('Your Site Is Going To Be Hidden');
+		$message = '<html><body>';
+		$message .= '<p>' . _('Dear Site Administrator,') . '</p>'; 
+		$message .= '<p>' . sprintf(__('Your site, %s has been inactive for %d days and will be automatically hidden in %d days if it continues to have no activity.'), '<a href="'. $site_details->siteurl .'">' . $site_details->siteurl .'</a>', round($this->options['inactivity_threshold']/60/60/24), round($this->options['inactivity_warning_threshold']/60/60/24)) . '</p>';
+		$message .= '<p>' . _('If you think this was in error, please reply to this email.') . '</p>';
+		$message .= '<p>' . _('Thanks,') . '</p>';
+		$message .= '<p>' . get_site_option('site_name') . ' ' . _('Administrators') .'</p>';
+		$message .= '</body></html>';
+		
+		$admin_emails = apply_filters('hide_inactive_sites_edit_site_almost_hidden_to_emails', $admin_emails, $site_details);
+		$headers = apply_filters('hide_inactive_sites_edit_site_almost_hidden_headers', $headers, $site_details);
+		$subject = apply_filters('hide_inactive_sites_edit_site_almost_hidden_subject', $subject, $site_details);
+		$message = apply_filters('hide_inactive_sites_edit_site_almost_hidden_message', $message, $site_details);
+		
+		switch_to_blog($old_blog_id);
+		
+		return wp_mail($admin_emails, $subject, $message, $headers);
+	}
+	
     function send_site_hidden_email($site_details){
 		global $wpdb, $blog_id;
 		
@@ -291,17 +436,7 @@ class Hide_Inactive_Sites {
 		$old_blog_id = $blog_id;
 		switch_to_blog($site_details->blog_id);
 		
-		$blog_prefix = $wpdb->get_blog_prefix($site_details->blog_id);
-		$users = $wpdb->get_results( "SELECT user_id, user_id AS ID, user_login, display_name, user_email, meta_value FROM $wpdb->users, $wpdb->usermeta WHERE {$wpdb->users}.ID = {$wpdb->usermeta}.user_id AND meta_key = '{$blog_prefix}capabilities' ORDER BY {$wpdb->users}.display_name" );
-		
-		$admins = array();
-		foreach($users as $user){
-			$user_details = get_user_by('login', $user->user_login);
-			if(user_can($user_details->ID, 'manage_options')){
-				$admins[$user_details->ID] = $user_details->user_email;	// Add admin email to array
-			}
-		}
-		$admin_emails = implode(',', $admins);
+		$admin_emails = $this->get_site_admins($site_details->blog_id);
 		
 		$headers = "From: ". get_site_option('admin_email') ."\r\n";
 		$headers .= "Content-Type: text/html\r\n";
@@ -322,6 +457,45 @@ class Hide_Inactive_Sites {
 		switch_to_blog($old_blog_id);
 		
 		return wp_mail($admin_emails, $subject, $message, $headers);
+	}
+	
+	function warning(){
+	    global $wpdb;
+        
+        $timezone_offset = get_option('gmt_offset');
+		$query = "SELECT blog_id, last_updated FROM " . $wpdb->base_prefix . "blogs WHERE spam != '1' AND archived != '1' AND deleted != '1'";
+		
+		// Check for excluded sites...if none, still exclude site #1
+		if(!empty($this->options['excluded_sites']) && $this->options['excluded_sites'][0] != ''){
+			$query .= " AND blog_id NOT IN (1,". implode(',', $this->options['excluded_sites']) .")";
+		} else {
+			$query .= " AND blog_id != '1'";
+		}
+		
+		$query .= " AND last_updated <= '". date('Y-m-d H:i:s', time() - $this->options['inactivity_threshold'] - $this->options['inactivity_warning_threshold'] + $timezone_offset * 3600) ."' AND public <> '". $this->options['site_visibility'] ."' ORDER BY last_updated ASC";
+		$query = apply_filters('hide_inactive_sites_edit_warning_query', $query);
+		$blogs = $wpdb->get_results($query);
+
+		foreach($blogs as $blog){
+		    // Extend php processing time each time we loop...just to make sure this doesn't fail
+			set_time_limit(60);
+		    
+		    // Get site information
+		    $site_details = get_blog_details($blog->blog_id);
+		    
+		    // Check for minimum # posts to be met
+		    if(isset($this->options['min_posts']) && $this->options['min_posts'] > 0){
+		    	if($site_details->post_count >= $this->options['min_posts']){
+		    		continue;	// Has enough post...skip hiding this one
+		        }
+		    }
+		    
+		    // Send email notifying the user
+		    $this->send_site_warning_email($site_details);
+		    
+		    // Site has been warned
+		    update_option('hide-inactive-sites-warned', time() + $timezone_offset * 3600);
+		}
 	}
 }
 
