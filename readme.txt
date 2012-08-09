@@ -24,6 +24,9 @@ This plugin uses WP_Cron to update the sites. I've created a filter in the plugi
 
 == Changelog ==
 
+= 1.2.1 =
+* Fixed problem where users would keep receiving warning email.
+
 = 1.2 =
 * Added ability to send warning email before site is removed
 * Fixed problem with query after removing excluded sites. 

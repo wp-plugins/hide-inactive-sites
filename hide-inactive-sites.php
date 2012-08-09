@@ -4,7 +4,7 @@ Plugin Name: Hide Inactive Sites
 Plugin URI: http://judenware.com/projects/wordpress/hide-inactive-sites/
 Description: Changes visibility of a blog after it has had no activity for a specified amount of time.
 Author: ericjuden
-Version: 1.2
+Version: 1.2.1
 Author URI: http://www.judenware.com
 Network: true
 */
@@ -490,11 +490,19 @@ class Hide_Inactive_Sites {
 		        }
 		    }
 		    
-		    // Send email notifying the user
-		    $this->send_site_warning_email($site_details);
+		    // Check when site was warned
+		    switch_to_blog($blog->blog_id);
+		    $warning_time = get_option('hide-inactive-sites-warned', false);
+		    switch_to_blog($blog_id);
 		    
-		    // Site has been warned
-		    update_option('hide-inactive-sites-warned', time() + $timezone_offset * 3600);
+		    // Has site been warned yet?
+		    if($warning_time === false){
+    		    // Send email notifying the user
+    		    $this->send_site_warning_email($site_details);
+    		    
+    		    // Site has been warned
+    		    update_option('hide-inactive-sites-warned', time() + $timezone_offset * 3600);
+		    }
 		}
 	}
 }
