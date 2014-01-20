@@ -2,7 +2,7 @@
 Contributors: ericjuden
 Tags: wordpress, multisite, wpmu, blogs, sites, activity, inactive, hide
 Requires at least: 3.2
-Tested up to: 3.4
+Tested up to: 3.8
 Stable tag: trunk
 
 == Description ==
