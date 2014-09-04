@@ -2,7 +2,7 @@
 Contributors: ericjuden
 Tags: wordpress, multisite, wpmu, blogs, sites, activity, inactive, hide
 Requires at least: 3.2
-Tested up to: 3.8
+Tested up to: 4.0
 Stable tag: trunk
 
 == Description ==
@@ -23,6 +23,10 @@ This plugin uses WP_Cron to update the sites. I've created a filter in the plugi
 1. The Network Admin dashboard screen. Each of the options can be added on to using the hooks in the plugin.
 
 == Changelog ==
+
+= 1.2.2 =
+* Removed passing variables by reference.
+* Fixed an error where current_page variable wasn't getting set on the settings page.
 
 = 1.2.1 =
 * Fixed problem where users would keep receiving warning email.

@@ -4,7 +4,7 @@ Plugin Name: Hide Inactive Sites
 Plugin URI: http://judenware.com/projects/wordpress/hide-inactive-sites/
 Description: Changes visibility of a blog after it has had no activity for a specified amount of time.
 Author: ericjuden
-Version: 1.2.1
+Version: 1.2.2
 Author URI: http://www.judenware.com
 Network: true
 */
@@ -32,18 +32,18 @@ class Hide_Inactive_Sites {
 			$this->options = array();
 		}
 
-        add_action('hide_inactive_sites_cron', array(&$this, 'cron'));
-        add_action('hide_inactive_sites_warning', array(&$this, 'warning'));
-		add_action(($this->is_network ? 'network_admin_menu' : 'admin_menu'), array(&$this, 'admin_menu'));
-		add_action('init', array(&$this, 'init'));
-		add_filter('cron_schedules', array(&$this, 'cron_schedules'));
+        add_action('hide_inactive_sites_cron', array($this, 'cron'));
+        add_action('hide_inactive_sites_warning', array($this, 'warning'));
+		add_action(($this->is_network ? 'network_admin_menu' : 'admin_menu'), array($this, 'admin_menu'));
+		add_action('init', array($this, 'init'));
+		add_filter('cron_schedules', array($this, 'cron_schedules'));
 	}
 	
 	function admin_menu(){
 		if($this->is_network){
-			add_submenu_page('settings.php', _('Inactive Site Options'), _('Hide Inactive Sites'), 'manage_sites', 'hide-inactive-sites-options', array(&$this, 'plugin_options'));
+			add_submenu_page('settings.php', _('Inactive Site Options'), _('Hide Inactive Sites'), 'manage_sites', 'hide-inactive-sites-options', array($this, 'plugin_options'));
 		} else {
-			add_options_page(_('Inactive Site Options'), _('Hide Inactive Sites'), 8, 'hide-inactive-sites-options', array(&$this, 'plugin_options'));
+			add_options_page(_('Inactive Site Options'), _('Hide Inactive Sites'), 8, 'hide-inactive-sites-options', array($this, 'plugin_options'));
 		}
 	}
     
@@ -234,6 +234,8 @@ class Hide_Inactive_Sites {
 		if(isset($_GET['action'])){
 			$action = $_GET['action'];
 		}
+
+		$current_page = substr($_SERVER["SCRIPT_NAME"],strrpos($_SERVER["SCRIPT_NAME"],"/")+1);
 		
 		switch($action){
 			case "update":
@@ -281,8 +283,6 @@ class Hide_Inactive_Sites {
 			    } else {
 			    	update_option('hide-inactive-sites-options', $this->options);
 			    }
-			    
-			    $current_page = substr($_SERVER["SCRIPT_NAME"],strrpos($_SERVER["SCRIPT_NAME"],"/")+1);
     ?>
     		<script>
 				window.location="<?php echo $current_page ?>?page=hide-inactive-sites-options&updated=true&updatedmsg=<?php echo urlencode(__('Settings Saved')); ?>";
